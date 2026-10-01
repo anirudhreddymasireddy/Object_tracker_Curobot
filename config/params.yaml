@@ -1,0 +1,109 @@
+kf_object_tracker:
+  ros__parameters:
+
+    # Fallback time step (seconds), used only for a track's first step and
+    # when the measured interval is unusable. Normal steps use the real
+    # elapsed time between detection message stamps.
+    dt: 0.1
+
+    # Upper clamp on a single predict step. A multi-second detection dropout
+    # would otherwise advance every track by seconds of extrapolated motion
+    # in one go.
+    dt_max: 1.0
+
+    # Maximum Euclidean distance (metres) to associate a detection to a track.
+    # Must exceed how far a target moves between detections: at 1.5 m/s and
+    # 10 Hz that is 0.15 m, but at 1 Hz it is 1.5 m and association starts to
+    # fail, which fragments one object into several tracks.
+    max_dist: 2.0
+
+    # Seconds a track may coast unmatched before deletion (was a frame count,
+    # which meant a wildly different real lifetime as the rate varied).
+    max_coast_time: 1.0
+
+    # Seconds a retired track's identity stays claimable, so an object that
+    # vanished during a detection gap comes back with the id it had rather
+    # than a new one. Separate from max_coast_time on purpose: retention costs
+    # nothing in accuracy because a retired track publishes nothing, whereas
+    # simply coasting longer degraded position up to 78%. Measured over the 7
+    # recorded runs: track ids 25 -> 14, ID switches 19 -> 9, position
+    # bit-identical on every bag.
+    max_id_retention: 3.0
+
+    # Max distance (m) from a retired track's last known position for a new
+    # detection to reclaim its id. Sized on measured gap displacement
+    # (0.01-0.77 m over 22 gaps), not on the sweep optimum — see the node's
+    # comment for why a looser gate scores better here but should not be used.
+    reid_max_dist: 1.5
+
+    # Measurement noise variance per axis (m²) — the scatter of raw detections
+    # about ground truth, with bias excluded (a fixed offset is not noise).
+    # Re-measured at ~7 Hz on two runs; verified to improve both position
+    # (0.362 -> 0.350 m rms) and velocity (0.425 -> 0.407 m/s).
+    r_diag: [0.03, 0.03, 0.0015]
+
+    # Process noise spectral density (m²/s³) — how much unmodelled
+    # acceleration the constant-velocity model has to absorb. Raise it if
+    # tracks lag behind manoeuvring targets, lower it if they look jittery.
+    q_accel: 0.5
+
+    # There is only one motion model. Constant-turn-rate (CTRV) and a
+    # bias-augmented variant were both implemented, measured and removed.
+    #
+    # CTRV constrained velocity along the regressed box heading. A/B on a
+    # 7.5 Hz run against the target car's own /kinematic_state:
+    #     model   pos rms   vel rms   dir median   dir p90   backwards
+    #     cv        0.303     0.364         6.0d     20.0d        4.5%
+    #     ctrv      0.349     0.420         6.6d    157.4d       10.8%
+    # CTRV's heading error is BIMODAL — right to within 15 deg 78% of the time
+    # and exactly backwards 11% of the time, because a 3D box cannot tell a
+    # car's front from its back. An occasional reversed velocity is far more
+    # dangerous for avoidance than cv's diffuse spread. Worth revisiting only
+    # if the detector ever yields an unambiguous heading.
+    #
+    # Scale R by detection confidence. Measured fg_prob spans 0.48-0.97; this
+    # is what recovers position on low-confidence detections.
+    score_weight_r: true
+
+    # EMA weight for the published box extent (1.0 = take latest, as before).
+    # Raw per-frame size jitters ~15% of car length; pure_pursuit sizes its
+    # clearance corridor from this value.
+    size_alpha: 0.3
+
+    # Frames a new track must be matched before it is published
+    min_hits: 2
+
+    # Number of future waypoints to predict and publish
+    predict_steps: 20
+
+    # Time between predicted waypoints (seconds)
+    predict_dt: 0.1
+
+    # ---------------------------------------------------------------------------
+    # Kalman Filter noise parameters — tuned via grid search on A->B test
+    # ---------------------------------------------------------------------------
+    # Process noise: position (how much position can drift from model)
+    # Lower = trust the CV motion model more on position
+    q_pos: 0.05
+
+    # Process noise: velocity (how reactive velocity estimate is to speed changes)
+    # Tuned from 1.0 -> 0.01 — biggest single improvement (-28.8% RMSE)
+    q_vel: 0.01
+
+    # Measurement noise: how noisy the sensor is (metres^2)
+    # Tuned from 0.5 -> 0.03 — tells KF the sensor is reliable, follow it closely
+    r_meas: 0.03
+
+tracker_visualizer:
+  ros__parameters:
+
+    # Maximum past positions kept per track for the history trail
+    history_len: 50
+
+    # Marker lifetime in seconds. Must comfortably exceed the worst-case gap
+    # between messages *as seen by RViz*, not the nominal publish period: a
+    # remote RViz over Wi-Fi sees jitter and dropped frames, and any gap longer
+    # than this blanks the markers until the next message lands. 0.6 was sized
+    # for the 10 Hz design rate; at the ~2 Hz the pipeline actually achieves it
+    # left ~40 ms of margin and the display flickered constantly.
+    marker_lifetime: 3.0

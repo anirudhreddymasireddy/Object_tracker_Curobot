@@ -1,0 +1,29 @@
+# Bridge the TARGET car's ground-truth state onto the ego's domain so a single
+# node can score /tracked_objects against it live.
+#
+# The two cars run on separate ROS domains (target = 6, ego = 11) and a process
+# can only join one, so nothing on the ego can see the target's own estimate
+# without this. Recording two bags and comparing offline works, but gives no
+# feedback while the run is happening.
+#
+# The remap matters: domain 11 already publishes /kinematic_state for the EGO
+# car. Bridging the target's under the same name would collide, and whichever
+# arrived last would win — so it lands as /target/kinematic_state instead.
+#
+# Run with:
+#   ros2 run domain_bridge domain_bridge \
+#       src/object_tracker/config/target_gt_bridge.yaml
+#
+# Verify on the ego side (domain 11):
+#   ros2 topic hz /target/kinematic_state
+name: target_gt_bridge
+from_domain: 6
+to_domain: 11
+topics:
+  kinematic_state:
+    type: curobot_msgs/msg/KinematicState
+    remap: target/kinematic_state
+    # localization.py publishes with BEST_EFFORT (see its QoSProfile), so the
+    # bridge subscription has to match or it will never connect.
+    qos:
+      reliability: best_effort
